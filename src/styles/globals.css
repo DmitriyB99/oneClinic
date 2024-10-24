@@ -1,0 +1,43 @@
+@import 'antd/dist/reset.css';
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+@import '@splidejs/react-splide/css';
+
+
+* {
+  box-sizing: border-box;
+  font-family: Roboto Flex, sans-serif;
+}
+
+#__next {
+  height: 100%;
+}
+
+.ant-radio-checked .ant-radio-inner::after {
+  transform: scale(.9) !important
+}
+
+.ant-switch-handle::before {
+  border-radius: 23px !important;
+}
+.ant-switch.ant-switch-checked .ant-switch-handle {
+  inset-inline-start: calc(100% - 28px);
+}
+
+.scrollbar-hide::-webkit-scrollbar {
+  display: none;
+}
+
+.scrollbar-hide {
+  -ms-overflow-style: none;  /* IE and Edge */
+  scrollbar-width: none;  /* Firefox */
+}
+
+@media screen and (-webkit-min-device-pixel-ratio:0) {
+  select,
+  textarea,
+  input {
+    font-size: 16px;
+  }
+}

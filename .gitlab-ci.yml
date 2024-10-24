@@ -1,0 +1,121 @@
+image: reg.appleseed.kz/docker-proxy/library/node:21
+
+#variables:
+#  DOCKER_BUILD_ARGS: '--build-arg BACKEND_URL'
+
+stages:
+  - preparation
+  # - test
+  - build
+  - dockerbuild
+  - deploy
+
+installation:
+  tags:
+    - k8s-build
+  stage: preparation
+  artifacts:
+    when: always
+    expire_in: 50 minutes
+    paths:
+      - node_modules
+  script:
+    - npm install --silent
+
+.app_build:
+  tags:
+    - k8s-build
+  stage: build
+  needs: ['installation']
+  artifacts:
+    when: always
+    expire_in: 30 minutes
+    paths:
+      - dist
+      - static
+  cache:
+    key: node
+    paths:
+      - node_modules
+  script:
+    - npm run build
+
+build_staging:
+  extends: .app_build
+  environment:
+    name: k8s-staging
+  only:
+    refs:
+      - dev
+
+build_prod:
+  extends: .app_build
+  environment:
+    name: k8s-production
+  only:
+    refs:
+      - master
+
+.docker_build:
+  tags:
+    - k8s-build
+  stage: dockerbuild
+  image:
+    name: gcr.io/kaniko-project/executor:debug
+    entrypoint: ['']
+  script:
+    - mkdir -p /kaniko/.docker
+    - echo "{\"auths\":{\"$REGHOST\":{\"username\":\"$REGUSER\",\"password\":\"$REGPASS\"}}}" > /kaniko/.docker/config.json
+    - KANIKOBUILDARGS=$DOCKER_BUILD_ARGS
+    - /kaniko/executor --context $CI_PROJECT_DIR --dockerfile $CI_PROJECT_DIR/Dockerfile $KANIKOBUILDARGS --destination $REGHOST/$CI_PROJECT_NAME-$CI_PROJECT_ID/$CI_PROJECT_NAME:$CI_ENVIRONMENT_SLUG-$CI_PIPELINE_ID --destination $REGHOST/$CI_PROJECT_NAME-$CI_PROJECT_ID/$CI_PROJECT_NAME:latest
+  allow_failure: false
+
+docker_build_staging:
+  extends: .docker_build
+  dependencies:
+    - build_staging
+  environment:
+    name: k8s-staging
+  only:
+    refs:
+      - dev
+
+docker_build_production:
+  extends: .docker_build
+  dependencies:
+    - build_prod
+  environment:
+    name: k8s-production
+  only:
+    refs:
+      - master
+
+.deploy_k8s:
+  stage: deploy
+  image: reg.appleseed.kz/kubectl-42/kubectl:latest
+  script:
+    - kubectl create secret docker-registry registry --docker-server=$REGHOST --docker-username=$REGUSER --docker-password=$REGPASS --docker-email=$GITLAB_USER_EMAIL --dry-run=client -o yaml | kubectl replace --force -f -
+    - cat $CI_PROJECT_DIR/k8s/service.yaml | envsubst | kubectl apply -f - ## внимание!!! - должен быть первым по очередности деплоя
+    - cat $CI_PROJECT_DIR/k8s/ingress.yaml | envsubst | kubectl apply -f -
+    - cat $CI_PROJECT_DIR/k8s/deployment.yaml | envsubst | kubectl apply -f - ## внимание!!! - должен быть последним по очередности деплоя
+
+deploy_staging:
+  extends: .deploy_k8s
+  environment:
+    name: k8s-staging
+  dependencies:
+    - docker_build_staging
+  only:
+    refs:
+      - dev
+
+deploy_production:
+  extends: .deploy_k8s
+  environment:
+    name: k8s-production
+  dependencies:
+    - docker_build_production
+  only:
+    refs:
+      - master
+  when: manual
